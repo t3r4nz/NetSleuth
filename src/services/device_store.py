@@ -33,16 +33,62 @@ class InMemoryDeviceStore(IDeviceStore):
         self._devices: dict[str, NetworkDevice] = {}
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _is_valid_ip(ip: str | None) -> bool:
+        """Return True if *ip* is a usable unicast address."""
+        if not ip or ip in {"0.0.0.0", "255.255.255.255", ""}:
+            return False
+        if ip.startswith("169.254."):
+            return False
+        return True
+
     def upsert(self, device: NetworkDevice) -> None:
-        """Insert a new device or replace an existing one (keyed by MAC).
+        """Insert a new device or **smart-merge** with an existing one.
+
+        Merge rules:
+        - Never overwrite a valid IP with a null/invalid IP.
+        - Keep the higher-confidence fingerprint.
+        - Preserve the earliest ``first_seen`` timestamp.
+        - Always update ``last_seen`` to the latest value.
 
         Args:
             device: The device to upsert.
         """
         mac_key = device.mac_address.upper()
         with self._lock:
-            self._devices[mac_key] = device
-            logger.debug("Upserted device %s.", mac_key)
+            existing = self._devices.get(mac_key)
+
+            if existing is None:
+                # Brand new device — insert directly.
+                self._devices[mac_key] = device
+                logger.debug("New device %s (%s).", mac_key, device.ip_address)
+                return
+
+            # ── Smart merge ──────────────────────────────────── #
+            merged = device
+
+            # Preserve valid IP if incoming one is bad.
+            if self._is_valid_ip(existing.ip_address) and not self._is_valid_ip(device.ip_address):
+                merged = NetworkDevice(
+                    mac_address=device.mac_address,
+                    ip_address=existing.ip_address,
+                    vendor=device.vendor or existing.vendor,
+                    fingerprint=device.fingerprint if (device.fingerprint and device.fingerprint.confidence >= (existing.fingerprint.confidence if existing.fingerprint else 0)) else existing.fingerprint,
+                    first_seen=min(existing.first_seen, device.first_seen),
+                    last_seen=max(existing.last_seen, device.last_seen),
+                )
+            else:
+                merged = NetworkDevice(
+                    mac_address=device.mac_address,
+                    ip_address=device.ip_address if self._is_valid_ip(device.ip_address) else existing.ip_address,
+                    vendor=device.vendor or existing.vendor,
+                    fingerprint=device.fingerprint if (device.fingerprint and device.fingerprint.confidence >= (existing.fingerprint.confidence if existing.fingerprint else 0)) else existing.fingerprint,
+                    first_seen=min(existing.first_seen, device.first_seen),
+                    last_seen=max(existing.last_seen, device.last_seen),
+                )
+
+            self._devices[mac_key] = merged
+            logger.debug("Merged device %s (%s).", mac_key, merged.ip_address)
 
     def get_all(self) -> Sequence[NetworkDevice]:
         """Return a snapshot of all discovered devices.

@@ -5,15 +5,16 @@ Analyses DHCP (Dynamic Host Configuration Protocol) packets, focusing
 on **Option 55** (Parameter Request List), which is one of the most
 reliable passive OS fingerprinting signals.
 
-Each operating system requests a characteristic set of DHCP options in
-a specific order.  By comparing the observed list against a database of
-known signatures, we can identify the OS family with moderate-to-high
-confidence.
+Includes a **Randomized MAC Heuristic**: modern mobile devices
+(Android 10+, iOS 14+) use locally-administered MAC addresses to
+prevent tracking.  If the second hex character of the MAC is 2, 6,
+A, or E, the vendor is overridden with "Randomized MAC (Mobile/IoT)"
+and the DHCP fingerprint is trusted over the OUI vendor lookup.
 
 References:
     - RFC 2132 (DHCP Options)
     - Fingerbank (https://fingerbank.org)
-    - p0f DHCP signatures
+    - IEEE 802 locally-administered bit
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ logger = logging.getLogger(__name__)
 # Values are (os_guess, device_type, confidence).
 
 _DHCP_SIGNATURES: dict[tuple[int, ...], tuple[str, DeviceType, float]] = {
-    # Windows 10/11
+    # ── Windows 10 / 11 ──────────────────────────────────────────────── #
     (1, 3, 6, 15, 31, 33, 43, 44, 46, 47, 119, 121, 249, 252): (
         "Windows 10/11",
         DeviceType.PC,
@@ -48,13 +49,23 @@ _DHCP_SIGNATURES: dict[tuple[int, ...], tuple[str, DeviceType, float]] = {
         DeviceType.PC,
         0.80,
     ),
-    # Windows 7/8
+    (1, 3, 6, 15, 31, 33, 43, 44, 46, 47, 119, 121): (
+        "Windows 11",
+        DeviceType.PC,
+        0.80,
+    ),
+    # ── Windows 7 / 8 ────────────────────────────────────────────────── #
     (1, 15, 3, 6, 44, 46, 47, 31, 33, 121, 249, 43, 252): (
         "Windows 7/8",
         DeviceType.PC,
         0.80,
     ),
-    # macOS
+    (1, 15, 3, 6, 44, 46, 47, 31, 33, 121, 249, 43): (
+        "Windows 8.1",
+        DeviceType.PC,
+        0.75,
+    ),
+    # ── macOS ─────────────────────────────────────────────────────────── #
     (1, 121, 3, 6, 15, 119, 252, 95, 44, 46): (
         "macOS 12+ (Monterey/Ventura)",
         DeviceType.PC,
@@ -65,7 +76,12 @@ _DHCP_SIGNATURES: dict[tuple[int, ...], tuple[str, DeviceType, float]] = {
         DeviceType.PC,
         0.75,
     ),
-    # Linux (NetworkManager / systemd-networkd)
+    (1, 121, 3, 6, 15, 119, 252, 95, 44, 46, 101): (
+        "macOS 14+ (Sonoma)",
+        DeviceType.PC,
+        0.85,
+    ),
+    # ── Linux ─────────────────────────────────────────────────────────── #
     (1, 28, 2, 3, 15, 6, 119, 12, 44, 47, 26, 121, 42): (
         "Linux (NetworkManager)",
         DeviceType.PC,
@@ -76,7 +92,12 @@ _DHCP_SIGNATURES: dict[tuple[int, ...], tuple[str, DeviceType, float]] = {
         DeviceType.PC,
         0.75,
     ),
-    # Android
+    (1, 3, 6, 12, 15, 26, 28): (
+        "Linux (systemd-networkd)",
+        DeviceType.PC,
+        0.70,
+    ),
+    # ── Android ───────────────────────────────────────────────────────── #
     (1, 3, 6, 15, 26, 28, 51, 58, 59, 43): (
         "Android 10+",
         DeviceType.MOBILE,
@@ -87,25 +108,88 @@ _DHCP_SIGNATURES: dict[tuple[int, ...], tuple[str, DeviceType, float]] = {
         DeviceType.MOBILE,
         0.70,
     ),
-    # iOS / iPadOS
+    (1, 3, 6, 15, 26, 28, 51, 58, 59): (
+        "Android 12+",
+        DeviceType.MOBILE,
+        0.80,
+    ),
+    (1, 3, 6, 15, 26, 28, 51, 58, 59, 43, 114): (
+        "Android 13+",
+        DeviceType.MOBILE,
+        0.85,
+    ),
+    # ── iOS / iPadOS ──────────────────────────────────────────────────── #
     (1, 121, 3, 6, 15, 119, 252): (
         "iOS / iPadOS",
         DeviceType.MOBILE,
         0.80,
     ),
-    # Smart TVs
+    (1, 121, 3, 6, 15, 119, 252, 95, 44, 46): (
+        "iOS 16+ / iPadOS 16+",
+        DeviceType.MOBILE,
+        0.85,
+    ),
+    (1, 3, 6, 15, 119, 252): (
+        "iOS (older)",
+        DeviceType.MOBILE,
+        0.70,
+    ),
+    # ── Smart TVs / Media ─────────────────────────────────────────────── #
     (1, 3, 6, 12, 15, 28, 42): (
         "Smart TV / Media Player",
         DeviceType.TV,
         0.65,
     ),
-    # Printers
+    (1, 3, 6, 12, 15, 28, 42, 119): (
+        "Smart TV (Samsung/LG)",
+        DeviceType.TV,
+        0.70,
+    ),
+    # ── Printers ──────────────────────────────────────────────────────── #
     (1, 3, 6, 15, 44, 47): (
         "Network Printer",
         DeviceType.PRINTER,
         0.70,
     ),
+    # ── IoT / Embedded ────────────────────────────────────────────────── #
+    (1, 3, 6, 12, 15, 28): (
+        "IoT / Embedded Device",
+        DeviceType.IOT,
+        0.60,
+    ),
+    (1, 3, 6, 15): (
+        "Minimal DHCP Client (IoT)",
+        DeviceType.IOT,
+        0.50,
+    ),
 }
+
+
+# ── Randomized MAC Detection ─────────────────────────────────────────────── #
+# IEEE 802: the second hex character of a MAC address encodes two bits:
+#   bit 0 (U/L): 1 = Locally Administered (randomized)
+#   bit 1 (I/G): 0 = Unicast
+# Characters where bit-0 is set AND bit-1 is clear: 2, 6, A, E
+_RANDOMIZED_MAC_CHARS = frozenset("26aAeE")
+
+
+def is_randomized_mac(mac: str) -> bool:
+    """Detect if a MAC address is locally-administered (randomized).
+
+    Modern mobile OSes (Android 10+, iOS 14+, Windows 11) randomize
+    their MAC per-network.  The second hex character reveals this:
+    if it's 2, 6, A, or E, the U/L bit is set → locally administered.
+
+    Args:
+        mac: Colon- or dash-separated MAC (e.g., ``"da:a1:19:xx:xx:xx"``).
+
+    Returns:
+        ``True`` if the MAC is locally-administered (likely randomized).
+    """
+    clean = mac.replace(":", "").replace("-", "").replace(".", "")
+    if len(clean) < 2:
+        return False
+    return clean[1] in _RANDOMIZED_MAC_CHARS
 
 
 class DHCPAnalyzer(IPacketAnalyzer):
@@ -113,6 +197,10 @@ class DHCPAnalyzer(IPacketAnalyzer):
 
     Compares the DHCP Parameter Request List against a built-in
     signature database to guess the client's OS and device type.
+
+    When the source MAC is detected as randomized (locally-administered),
+    the vendor field is flagged as ``"Randomized MAC (Mobile/IoT)"`` and
+    the DHCP fingerprint is given priority over OUI vendor lookup.
     """
 
     @property
@@ -145,7 +233,23 @@ class DHCPAnalyzer(IPacketAnalyzer):
             list(option_55),
         )
 
-        return self._match_signature(option_55, packet.src_mac)
+        fp = self._match_signature(option_55, packet.src_mac)
+
+        # ── Randomized MAC heuristic ─────────────────────────── #
+        if is_randomized_mac(packet.src_mac):
+            logger.info(
+                "Randomized MAC detected: %s → overriding vendor.",
+                packet.src_mac,
+            )
+            fp = DeviceFingerprint(
+                os_guess=fp.os_guess,
+                device_type=fp.device_type,
+                confidence=fp.confidence,
+                method=fp.method + " [Randomized MAC]",
+                details=fp.details + " | vendor_override=Randomized MAC (Mobile/IoT)",
+            )
+
+        return fp
 
     # ── Helpers ───────────────────────────────────────────────────────── #
 

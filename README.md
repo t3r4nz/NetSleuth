@@ -32,18 +32,20 @@ Los escáneres tradiciones (como `arp-scan`) solo detectan dispositivos que resp
 
 | Feature | Descripción |
 |---|---|
+| 🌐 **Web Dashboard** | Interfaz web dark mode en tiempo real vía WebSocket (FastAPI + TailwindCSS) |
 | 🕵️ **Escaneo Pasivo** | Captura ARP, DHCP y TCP sin generar tráfico en la red |
 | ⚡ **Escaneo Activo** | ARP sweep + TCP SYN probes fire-and-forget (~3s para /24) |
 | 🔥 **Stress Test** | Inyección de paquetes a máxima velocidad vía raw sockets (100K+ PPS) con métricas en tiempo real |
-| 🖥️ **OS Fingerprinting** | Identifica Windows, Linux, macOS, Android, iOS vía DHCP Option 55 |
+| 🖥️ **OS Fingerprinting** | Identifica Windows, Linux, macOS, Android, iOS vía DHCP Option 55 (21 firmas) |
+| 📱 **Anti-MAC Randomization** | Detecta MACs aleatorias (Android 10+, iOS 14+) via bit U/L del IEEE 802 |
 | 🌐 **TCP/IP Fingerprinting** | Análisis de TTL, Window Size y opciones TCP (similar a p0f) |
 | 🏭 **MAC Vendor Lookup** | Resolución automática del fabricante via macvendors.com |
-| 🔌 **Auto-detección** | Detecta interfaz y subred automáticamente (sin `-i` ni `--subnet`) |
-| 🛡️ **Validación de privilegios** | Chequeo temprano de root/admin antes de cargar scapy |
-| 📊 **Múltiples formatos** | Salida en tabla coloreada ANSI o JSON |
-| 🏗️ **Clean Architecture** | Patrones Observer, Factory, Strategy — extensible para web UI |
+| 🛡️ **ARP IP Filtering** | Filtra IPs inválidas (0.0.0.0, 169.254.x.x) — previene envenenamiento de tabla |
+| 🔄 **Smart Merge** | DeviceStore nunca sobreescribe una IP válida con una nula |
+| 🔌 **Auto-detección** | Detecta interfaz y subred automáticamente |
+| 🏗️ **Clean Architecture** | Patrones Observer, Factory, Strategy |
 | 🧵 **No-bloqueante** | Sniffer y scanner activo en hilos daemon con graceful shutdown |
-| 🌐 **Web Dashboard** | Interfaz web dark mode en tiempo real vía WebSocket (FastAPI + TailwindCSS) |
+| 🔄 **Auto-Update** | `netsleuth update` descarga cambios y actualiza dependencias |
 
 ---
 
@@ -78,8 +80,10 @@ Los escáneres tradiciones (como `arp-scan`) solo detectan dispositivos que resp
 
 ```
 NetSleuth/
-├── main.py                          # CLI entry point
-├── web_main.py                      # Web dashboard entry point (Uvicorn)
+├── main.py                          # Único entry point (Web UI + Uvicorn)
+├── install.sh                       # Instalador automático (Kali/Debian)
+├── install_sys.sh                   # Instalador del comando global
+├── netsleuth.sh                     # Wrapper global (referencia)
 ├── pyproject.toml                   # Metadata & dependencies
 ├── requirements.txt                 # Pinned dependencies
 ├── README.md
@@ -93,8 +97,8 @@ NetSleuth/
 │   │   └── exceptions.py            # Custom exceptions
 │   │
 │   ├── analyzers/                   # Protocol analyzers
-│   │   ├── arp_analyzer.py          # ARP → MAC/IP mapping
-│   │   ├── dhcp_analyzer.py         # DHCP Option 55 fingerprinting
+│   │   ├── arp_analyzer.py          # ARP → MAC/IP (con filtro 0.0.0.0)
+│   │   ├── dhcp_analyzer.py         # DHCP Option 55 + MAC randomization
 │   │   └── tcp_analyzer.py          # TCP/IP stack fingerprinting
 │   │
 │   ├── engine/                      # Infrastructure
@@ -106,13 +110,9 @@ NetSleuth/
 │   │
 │   ├── services/                    # Application services
 │   │   ├── vendor_lookup.py         # MAC vendor API (httpx + cache)
-│   │   └── device_store.py          # Thread-safe device registry
+│   │   └── device_store.py          # Thread-safe device registry (smart merge)
 │   │
-│   ├── cli/                         # CLI presentation layer
-│   │   ├── controller.py            # Orchestrator
-│   │   └── formatters.py            # Table / JSON output
-│   │
-│   └── web/                         # Web presentation layer
+│   └── web/                         # Web presentation layer (única UI)
 │       ├── app.py                   # FastAPI + REST + WebSocket
 │       └── templates/
 │           └── index.html           # SPA dashboard (Tailwind dark mode)
@@ -151,7 +151,8 @@ source env/bin/activate
 pip install -r requirements.txt
 
 # 4. Verificar instalación
-sudo env/bin/python main.py --help
+sudo env/bin/python main.py
+# → Abre http://localhost:8443
 ```
 
 #### Instalar como comando global (opcional)
@@ -159,21 +160,17 @@ sudo env/bin/python main.py --help
 Permite ejecutar `netsleuth` desde **cualquier directorio** sin activar el venv:
 
 ```bash
-# 1. Copiar el proyecto a /opt (ubicación estándar para herramientas)
-sudo cp -r ~/NetSleuth /opt/NetSleuth
+# Un solo comando — detecta la ruta automáticamente
+chmod +x install_sys.sh
+sudo ./install_sys.sh
 
-# 2. Instalar el wrapper en el PATH global
-sudo cp /opt/NetSleuth/netsleuth.sh /usr/local/bin/netsleuth
-sudo chmod +x /usr/local/bin/netsleuth
-
-# 3. Listo — usar desde cualquier ubicación
+# Listo — usar desde cualquier ubicación
 netsleuth                                     # Lanzar dashboard
-netsleuth --port 9000 -i eth0                 # Puerto/interfaz custom
 netsleuth update                              # Actualizar desde GitHub
 ```
 
-> **Nota:** Si clonaste en otra ruta, edita `INSTALL_DIR` en el wrapper:
-> `sudo nano /usr/local/bin/netsleuth`
+> **Nota:** El script `install_sys.sh` detecta automáticamente la ruta del proyecto.
+> Si necesitas cambiarla después: `sudo nano /usr/local/bin/netsleuth`
 
 ### Ubuntu / Debian
 
@@ -313,9 +310,9 @@ pip install -r requirements.txt --upgrade
 
 ```
             ┌────────────────────────────────────────────┐
-            │              CLI  (main.py)                │
+            │        WEB UI  (main.py → Uvicorn)         │
             │         ┌──────────────────┐               │
-            │         │  CLIController   │               │
+            │         │  FastAPI + WS    │               │
             │         └────────┬─────────┘               │
             └──────────────────┼─────────────────────────┘
                                │
@@ -330,7 +327,12 @@ pip install -r requirements.txt --upgrade
             │  ┌───────────────┐               ▼         │
             │  │ActiveScanner  │       ┌──────────────┐ │
             │  │(fire&forget)  │       │ DeviceStore   │ │
-            │  └───────────────┘       └──────────────┘ │
+            │  └───────────────┘       │ (smart merge) │ │
+            │                          └──────────────┘ │
+            │  ┌───────────────┐                         │
+            │  │StressTester   │                         │
+            │  │(raw sockets)  │                         │
+            │  └───────────────┘                         │
             └────────────────────────────────────────────┘
                                │
             ┌──────────────────┼─────────────────────────┐
