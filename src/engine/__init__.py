@@ -1,0 +1,1 @@
+# Engine layer — infrastructure adapters

@@ -1,0 +1,33 @@
+# ═══ Python ═══
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+
+# ═══ Virtual Environments ═══
+env/
+venv/
+.venv/
+ENV/
+
+# ═══ IDE / Editor ═══
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ═══ Distribution / Build ═══
+dist/
+build/
+*.egg-info/
+*.egg
+
+# ═══ Logs ═══
+*.log
+
+# ═══ OS Files ═══
+Desktop.ini
