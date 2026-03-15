@@ -130,6 +130,8 @@ class PacketCapture(PacketSubject, IPacketSource):
             sniff_kwargs: dict[str, object] = {
                 "filter": self._bpf_filter,
                 "prn": self._handle_packet,
+                # CRITICO: store=False previene fuga masiva de memoria (OOM Killer).
+                # Si es True, Scapy guarda cada paquete en RAM hasta agotar el kernel.
                 "store": False,
                 "stop_filter": lambda _pkt: self._stop_event.is_set(),
                 "timeout": self._timeout,

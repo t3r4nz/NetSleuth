@@ -38,6 +38,8 @@ Los escáneres tradiciones (como `arp-scan`) solo detectan dispositivos que resp
 | 🔥 **Stress Test** | Inyección de paquetes a máxima velocidad vía raw sockets (100K+ PPS) con métricas en tiempo real |
 | 🖥️ **OS Fingerprinting** | Identifica Windows, Linux, macOS, Android, iOS vía DHCP Option 55 (21 firmas) |
 | 📱 **Anti-MAC Randomization** | Detecta MACs aleatorias (Android 10+, iOS 14+) via bit U/L del IEEE 802 |
+| 🏷️ **Capa 7 (L7) Discovery** | Extrae Hostnames y Servicios vía mDNS (UDP 5353) y SSDP (UDP 1900) |
+| 🎮 **Port Heuristics** | Detecta Minecraft Bedrock, Apple Sync, Chromecast, AirPlay, etc. |
 | 🌐 **TCP/IP Fingerprinting** | Análisis de TTL, Window Size y opciones TCP (similar a p0f) |
 | 🏭 **MAC Vendor Lookup** | Resolución automática del fabricante via macvendors.com |
 | 🛡️ **ARP IP Filtering** | Filtra IPs inválidas (0.0.0.0, 169.254.x.x) — previene envenenamiento de tabla |
@@ -155,22 +157,18 @@ sudo env/bin/python main.py
 # → Abre http://localhost:8443
 ```
 
-#### Instalar como comando global (opcional)
+#### Instalar comando global rígido (Recomendado)
 
-Permite ejecutar `netsleuth` desde **cualquier directorio** sin activar el venv:
+Permite ejecutar `netsleuth` desde **cualquier ruta** en ZSH/Bash sin problemas de `$PATH`:
 
 ```bash
-# Un solo comando — detecta la ruta automáticamente
-chmod +x install_sys.sh
-sudo ./install_sys.sh
+# Usa rutas absolutas e instala un wrapper en /usr/bin/netsleuth
+chmod +x fix_path.sh
+sudo ./fix_path.sh
 
 # Listo — usar desde cualquier ubicación
-netsleuth                                     # Lanzar dashboard
-netsleuth update                              # Actualizar desde GitHub
+netsleuth
 ```
-
-> **Nota:** El script `install_sys.sh` detecta automáticamente la ruta del proyecto.
-> Si necesitas cambiarla después: `sudo nano /usr/local/bin/netsleuth`
 
 ### Ubuntu / Debian
 
