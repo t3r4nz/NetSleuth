@@ -56,24 +56,18 @@ Los escáneres tradiciones (como `arp-scan`) solo detectan dispositivos que resp
 │                                                              │
 ├──────────────────────────────────────────────────────────────┤
 │                                                              │
-│  # Activar entorno virtual                                   │
+│  # Instalar y lanzar                                         │
 │  cd NetSleuth && source env/bin/activate                     │
-│                                                              │
-│  # CLI — Escaneo pasivo                                      │
-│  sudo env/bin/python main.py --timeout 60                    │
-│                                                              │
-│  # CLI — Escaneo activo                                      │
-│  sudo env/bin/python main.py --active -t 30                  │
-│                                                              │
-│  # CLI — Stress Test                                         │
-│  sudo env/bin/python main.py --stress-test 192.168.1.1       │
-│                                                              │
-│  # Web Dashboard                                             │
-│  sudo env/bin/python web_main.py                             │
+│  sudo env/bin/python main.py                                 │
 │  → Abrir http://localhost:8443                               │
 │                                                              │
-│  # Actualizar a la última versión (si instalaste global)     │
-│  netsleuth update                                            │
+│  # Puerto e interfaz personalizados                          │
+│  sudo env/bin/python main.py --port 9000 -i eth0             │
+│                                                              │
+│  # Con wrapper global (si lo instalaste)                     │
+│  netsleuth                        # Lanzar dashboard         │
+│  netsleuth --port 9000            # Puerto custom            │
+│  netsleuth update                 # Actualizar desde GitHub  │
 │                                                              │
 ╰──────────────────────────────────────────────────────────────╯
 ```
@@ -173,10 +167,9 @@ sudo cp /opt/NetSleuth/netsleuth.sh /usr/local/bin/netsleuth
 sudo chmod +x /usr/local/bin/netsleuth
 
 # 3. Listo — usar desde cualquier ubicación
-netsleuth --help                              # CLI
-netsleuth --active -t 30                      # Escaneo activo
-netsleuth --stress-test 192.168.1.1 -t 10     # Stress test
-netsleuth web                                 # Web Dashboard
+netsleuth                                     # Lanzar dashboard
+netsleuth --port 9000 -i eth0                 # Puerto/interfaz custom
+netsleuth update                              # Actualizar desde GitHub
 ```
 
 > **Nota:** Si clonaste en otra ruta, edita `INSTALL_DIR` en el wrapper:
@@ -213,53 +206,57 @@ python main.py --help
 
 ## 💻 Uso
 
-### Escaneo Pasivo (por defecto)
+NetSleuth se gestiona **100% desde el navegador** a través del Web Dashboard.
+
+### 🌐 Lanzar el Dashboard
 
 ```bash
-# Escuchar tráfico durante 60 segundos
-sudo python main.py --timeout 60
+# Método 1: Directamente con Python
+cd NetSleuth
+source env/bin/activate
+sudo env/bin/python main.py
 
-# Interfaz específica + salida JSON
-sudo python main.py -i eth0 -o json -t 120
+# Método 2: Con el wrapper global (si lo instalaste)
+netsleuth
 ```
 
-### Escaneo Activo (forzar descubrimiento)
+Abre tu navegador en **http://localhost:8443** para acceder al panel.
+
+### Opciones de línea de comandos
+
+| Flag | Descripción | Default |
+|---|---|---|
+| `--port PORT` | Puerto HTTP del dashboard | `8443` |
+| `--host HOST` | Dirección de bind | `0.0.0.0` |
+| `-i, --interface IFACE` | Interfaz de red para escanear | auto-detect |
+| `-v, --verbose` | Logging detallado (debug) | off |
 
 ```bash
-# ARP sweep + TCP SYN probes a toda la subred (auto-detectada)
-sudo python main.py --active --timeout 30
-
-# Especificar subred manualmente
-sudo python main.py --active --subnet 10.0.0.0/24 -i wlan0 -t 45
-
-# Modo verbose (debug logging)
-sudo python main.py --active -v -t 60
+# Ejemplo: puerto custom + interfaz específica + verbose
+sudo python main.py --port 9000 -i eth0 -v
 ```
 
-### 🌐 Web Dashboard
+### 🕵️ Desde el Dashboard puedes:
+
+- **Escaneo Pasivo** — Captura ARP/DHCP/TCP sin generar tráfico
+- **Escaneo Activo** — ARP sweep + TCP SYN probes fire-and-forget
+- **Stress Test** — Inyección UDP a velocidad máxima (requiere escribir `YES` para confirmar)
+- **Kill Switch** — Botón `⚠ ABORT` para detener todo al instante
+
+> ⚠️ El stress test puede causar **DoS** — solo úsalo en redes de tu propiedad.
+
+### 🔄 Actualizar NetSleuth
 
 ```bash
-# Lanzar el dashboard web (disponible en http://localhost:8443)
-sudo python web_main.py
+# Con el wrapper global
+netsleuth update
 
-# Puerto y interfaz personalizados
-sudo python web_main.py --port 9000 -i eth0 -v
+# Manualmente
+cd /opt/NetSleuth
+git pull origin main
+source env/bin/activate
+pip install -r requirements.txt --upgrade
 ```
-
-Abre tu navegador en `http://localhost:8443` para acceder al panel.
-
-### 🔥 Stress Test (medir capacidad del NIC/router)
-
-```bash
-# Medir PPS máximo contra tu router durante 10 segundos
-sudo python main.py --stress-test 192.168.1.1 -t 10
-
-# Stress test con verbose (ver logs del sniffer en paralelo)
-sudo python main.py --stress-test 192.168.1.1 -t 30 -v
-```
-
-> ⚠️ El stress test requiere confirmación explícita escribiendo `YES`.
-> Solo úsalo en redes de tu propiedad.
 
 ### Ejemplo de salida (escaneo activo)
 
