@@ -127,14 +127,20 @@ class PacketCapture(PacketSubject, IPacketSource):
             # without scapy installed.
             from scapy.all import sniff as scapy_sniff  # type: ignore[import-untyped]
 
-            scapy_sniff(
-                iface=self._interface,
-                filter=self._bpf_filter,
-                prn=self._handle_packet,
-                store=False,
-                stop_filter=lambda _pkt: self._stop_event.is_set(),
-                timeout=self._timeout,
-            )
+            sniff_kwargs: dict[str, object] = {
+                "filter": self._bpf_filter,
+                "prn": self._handle_packet,
+                "store": False,
+                "stop_filter": lambda _pkt: self._stop_event.is_set(),
+                "timeout": self._timeout,
+            }
+
+            # Only pass iface if explicitly set — None causes
+            # ValueError: Interface 'None' not found!
+            if self._interface is not None:
+                sniff_kwargs["iface"] = self._interface
+
+            scapy_sniff(**sniff_kwargs)
         except PermissionError as exc:
             logger.error("Permission denied: %s", exc)
             raise InsufficientPermissionsError(str(exc)) from exc

@@ -187,14 +187,14 @@ if [ "$(id -u)" -ne 0 ]; then
     exec sudo "$0" "$@"
 fi
 
-# Route: netsleuth web [args]
+# Route: netsleuth web [args] → main.py (web is now the default)
+# The "web" keyword is kept for backwards compatibility but main.py
+# is always the web dashboard now.
 if [ "$FIRST_ARG" = "web" ]; then
-    shift
-    ENTRY_POINT="${INSTALL_DIR}/web_main.py"
-    info "Lanzando Web Dashboard…"
-else
-    ENTRY_POINT="${INSTALL_DIR}/main.py"
+    shift  # Remove "web" from arguments
 fi
+
+ENTRY_POINT="${INSTALL_DIR}/main.py"
 
 # Verify entry point
 if [ ! -f "$ENTRY_POINT" ]; then

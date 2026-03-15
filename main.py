@@ -1,45 +1,31 @@
 #!/usr/bin/env python3
 """
-NetSleuth — Passive / Active Network Reconnaissance Tool.
+NetSleuth — Unified Entry Point (Web-Only).
 
-Entry point for the CLI application.  Parses command-line arguments,
-validates environment (privileges, network), and delegates to the
-``CLIController``.
+Launches the FastAPI web dashboard via Uvicorn.  All network
+reconnaissance (passive/active scanning) and stress testing is
+controlled exclusively through the browser UI.
 
 Usage::
 
-    # Passive scan on all interfaces (60 s timeout)
-    sudo python main.py --timeout 60
+    # Default (port 8443, all interfaces)
+    sudo python main.py
 
-    # Active scan — ARP sweep + TCP SYN probes
-    sudo python main.py --active --timeout 30
-
-    # Stress test — measure NIC capacity
-    sudo python main.py --stress-test 192.168.1.1 --timeout 10
-
-    # Specify interface and subnet manually
-    sudo python main.py -i eth0 --subnet 192.168.1.0/24 --active -t 45
-
-    # JSON output, verbose
-    sudo python main.py -i wlan0 -o json -v
+    # Custom port + specific interface + verbose
+    sudo python main.py --port 9000 -i eth0 -v
 
 Requirements:
     - Python 3.10+
-    - scapy  (``pip install scapy``)
-    - httpx  (``pip install httpx``) — optional, for vendor lookup
-    - netifaces  (``pip install netifaces``) — for subnet auto-detection
-    - Root / Administrator privileges for raw packet capture
+    - Root / sudo (raw sockets for scapy + stress test)
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-
-# ── Ensure the project root is in sys.path ────────────────────────────────── #
-# This allows running ``python main.py`` directly from the NetSleuth/ folder.
 from pathlib import Path
 
+# ── Ensure the project root is in sys.path ────────────────────────────────── #
 _PROJECT_ROOT = Path(__file__).resolve().parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
@@ -47,163 +33,108 @@ if str(_PROJECT_ROOT) not in sys.path:
 # ANSI helpers (available before any heavy import)
 _RED = "\033[91m"
 _YELLOW = "\033[93m"
+_GREEN = "\033[92m"
+_CYAN = "\033[96m"
 _BOLD = "\033[1m"
+_DIM = "\033[2m"
 _RESET = "\033[0m"
+
+_BANNER = rf"""
+{_CYAN}{_BOLD}
+  ███╗   ██╗███████╗████████╗███████╗██╗     ███████╗██╗   ██╗████████╗██╗  ██╗
+  ████╗  ██║██╔════╝╚══██╔══╝██╔════╝██║     ██╔════╝██║   ██║╚══██╔══╝██║  ██║
+  ██╔██╗ ██║█████╗     ██║   ███████╗██║     █████╗  ██║   ██║   ██║   ███████║
+  ██║╚██╗██║██╔══╝     ██║   ╚════██║██║     ██╔══╝  ██║   ██║   ██║   ██╔══██║
+  ██║ ╚████║███████╗   ██║   ███████║███████╗███████╗╚██████╔╝   ██║   ██║  ██║
+  ╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚══════╝╚══════╝╚══════╝ ╚═════╝    ╚═╝   ╚═╝  ╚═╝
+{_RESET}
+  {_GREEN}v1.0.0{_RESET}  {_DIM}Web Dashboard Mode{_RESET}
+"""
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    """Build and return the argument parser.
-
-    Returns:
-        Configured ``ArgumentParser`` instance.
-    """
+    """Build CLI argument parser (minimal — web-only)."""
     parser = argparse.ArgumentParser(
         prog="netsleuth",
-        description=(
-            "NetSleuth — Passive / Active Network Reconnaissance Tool.\n"
-            "Identifies devices on the local network by analysing MAC addresses,\n"
-            "DHCP Option 55, and TCP/IP stack fingerprints.\n\n"
-            "Active mode sends ARP broadcasts and TCP SYN probes to force\n"
-            "silent devices (firewalls in DROP mode) to reveal their MACs."
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=(
-            "Examples:\n"
-            "  sudo python main.py --timeout 60               # Passive, 60s\n"
-            "  sudo python main.py --active -t 30              # Active, 30s\n"
-            "  sudo python main.py -i eth0 --subnet 10.0.0.0/24 --active\n"
-            "  sudo python main.py --stress-test 192.168.1.1 -t 10\n"
-            "  sudo python main.py -o json -v                  # JSON + verbose\n"
-        ),
-    )
-
-    parser.add_argument(
-        "-i",
-        "--interface",
-        type=str,
-        default=None,
-        help="Network interface to capture on (auto-detected if omitted).",
+        description="NetSleuth — Web Dashboard (FastAPI + Uvicorn)",
     )
     parser.add_argument(
-        "-t",
-        "--timeout",
-        type=int,
-        default=None,
-        help="Scan duration in seconds (default: indefinite, stop with Ctrl+C).",
+        "-i", "--interface",
+        type=str, default=None,
+        help="Network interface for scanning (auto-detected if omitted).",
     )
     parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        choices=["table", "json"],
-        default="table",
-        help="Output format (default: table).",
+        "--port",
+        type=int, default=8443,
+        help="HTTP port to bind (default: 8443).",
     )
     parser.add_argument(
-        "--passive",
-        action="store_true",
-        default=True,
-        help="Passive mode — listen only, no active probing (default).",
+        "--host",
+        type=str, default="0.0.0.0",
+        help="Host address to bind (default: 0.0.0.0).",
     )
     parser.add_argument(
-        "--active",
-        action="store_true",
-        default=False,
-        help=(
-            "Active mode — send ARP broadcast sweeps and TCP SYN probes "
-            "to force devices to reveal their MACs."
-        ),
+        "-v", "--verbose",
+        action="store_true", default=False,
+        help="Enable debug logging.",
     )
-    parser.add_argument(
-        "--subnet",
-        type=str,
-        default=None,
-        help=(
-            "Target subnet in CIDR notation (e.g., 192.168.1.0/24). "
-            "Auto-detected if omitted."
-        ),
-    )
-    parser.add_argument(
-        "--stress-test",
-        type=str,
-        default=None,
-        metavar="TARGET_IP",
-        help=(
-            "Run a network stress test against TARGET_IP. "
-            "Measures max PPS and Mbps of your NIC. "
-            "⚠ Can cause DoS — requires explicit confirmation."
-        ),
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        default=False,
-        help="Enable verbose / debug logging.",
-    )
-
     return parser
 
 
-def _check_privileges_early() -> None:
-    """Run a lightweight privilege check before importing heavy modules.
+def _check_privileges() -> None:
+    """Verify root/admin privileges before starting.
 
-    This prevents the user from waiting for scapy to load only to
-    discover they forgot ``sudo``.
+    Raw sockets (scapy + stress test) require elevated privileges.
+    Fail fast with a clear message instead of crashing later.
     """
-    from src.core.exceptions import InsufficientPermissionsError
-
     try:
         from src.engine.network_utils import check_privileges
         check_privileges()
-    except InsufficientPermissionsError as exc:
+    except Exception as exc:
         sys.stderr.write(
-            f"\n{_RED}{_BOLD}  ✖  {exc.message}{_RESET}\n\n"
-            f"{_YELLOW}  💡 Tip: ejecuta con 'sudo python main.py' "
-            f"o como Administrador en Windows.{_RESET}\n\n"
+            f"\n{_RED}{_BOLD}  ✖  {exc}{_RESET}\n\n"
+            f"{_YELLOW}  💡 Ejecuta con: sudo python main.py{_RESET}\n\n"
         )
         sys.exit(1)
 
 
 def main() -> None:
-    """Parse CLI arguments, validate environment, and run the scanner."""
+    """Parse args, check privileges, print banner, and start Uvicorn."""
     parser = _build_parser()
     args = parser.parse_args()
 
-    # ── Early privilege gate (before any scapy import) ────────────────── #
-    _check_privileges_early()
+    # ── Privilege gate (before any heavy import) ──────────────────────── #
+    _check_privileges()
 
-    # ── Stress test mode ──────────────────────────────────────────────── #
-    if args.stress_test:
-        from src.cli.controller import CLIController
+    # ── Banner ────────────────────────────────────────────────────────── #
+    sys.stdout.write(_BANNER)
 
-        controller = CLIController(
-            interface=args.interface,
-            timeout=args.timeout,
-            output_format=args.output,
-            passive=True,
-            verbose=args.verbose,
-            subnet=args.subnet,
-            stress_target=args.stress_test,
-        )
-        controller.run_stress_test()
-        return
-
-    # ── Normal scan mode ──────────────────────────────────────────────── #
-    passive = not args.active
-
-    # Late import to keep argparse fast (scapy is slow to import).
-    from src.cli.controller import CLIController
-
-    controller = CLIController(
-        interface=args.interface,
-        timeout=args.timeout,
-        output_format=args.output,
-        passive=passive,
-        verbose=args.verbose,
-        subnet=args.subnet,
+    url = f"http://127.0.0.1:{args.port}"
+    sys.stdout.write(
+        f"  {_CYAN}Interface:{_RESET} {_BOLD}{args.interface or 'auto-detect'}{_RESET}\n"
+        f"  {_CYAN}Dashboard:{_RESET} {_BOLD}{url}{_RESET}\n"
+        f"  {_CYAN}Verbose:{_RESET}   {'Yes' if args.verbose else 'No'}\n\n"
+        f"  {_GREEN}NetSleuth UI Iniciada. Abre tu navegador en: {url}{_RESET}\n"
+        f"  {_DIM}Presiona Ctrl+C para detener el servidor.{_RESET}\n\n"
     )
-    controller.run()
+
+    # ── Create app and launch Uvicorn ─────────────────────────────────── #
+    import uvicorn  # type: ignore[import-untyped]
+    from src.web.app import create_app
+
+    app = create_app(
+        interface=args.interface,
+        verbose=args.verbose,
+    )
+
+    log_level = "debug" if args.verbose else "info"
+    uvicorn.run(
+        app,
+        host=args.host,
+        port=args.port,
+        log_level=log_level,
+        access_log=args.verbose,
+    )
 
 
 if __name__ == "__main__":
