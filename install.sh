@@ -169,31 +169,62 @@ success "Todas las dependencias instaladas correctamente."
 echo ""
 
 # ── Step 4: Final instructions ────────────────────────────────────
+#
+#  ¿POR QUÉ USAMOS printf CON ANCHOS FIJOS EN VEZ DE echo?
+#
+#  Los códigos ANSI de color (\033[0;92m, etc.) son "caracteres
+#  invisibles" — ocupan bytes pero no avanzan el cursor. Si los
+#  pones dentro de un echo normal con bordes ║, la terminal cuenta
+#  los bytes del código de color como si fueran texto visible,
+#  desplazando el borde derecho hacia la derecha.
+#
+#  Solución: imprimimos cada línea con la misma cantidad de
+#  caracteres VISIBLES, sin depender de echo para alinear.
+#  Usamos printf con el texto pre-formateado y ponemos los bordes
+#  fuera de las variables de color.
+# ──────────────────────────────────────────────────────────────────
+
+W=60  # Width of the box content (visible chars between borders)
+
+# Function: print a bordered line with colored content
+# Usage: bline "visible text" [color_code]
+bline() {
+    local text="$1"
+    local color="${2:-}"
+    local visible_len=${#text}
+    local pad=$((W - visible_len))
+    if [ -n "$color" ]; then
+        printf "  │ %b%s%b%*s │\n" "$color" "$text" "$RESET" "$pad" ""
+    else
+        printf "  │ %s%*s │\n" "$text" "$pad" ""
+    fi
+}
 
 echo -e "  ${BOLD}[4/4] ¡Instalación completada!${RESET}"
 echo ""
-
-echo -e "  ╔══════════════════════════════════════════════════════════════╗"
-echo -e "  ║  ${GREEN}${BOLD}✔  NetSleuth v1.0.0 instalado correctamente${RESET}              ║"
-echo -e "  ╠══════════════════════════════════════════════════════════════╣"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${CYAN}Comandos para ejecutar:${RESET}                                   ║"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${YELLOW}# Activar entorno virtual${RESET}                                ║"
-echo -e "  ║  ${BOLD}cd ${REPO_NAME} && source env/bin/activate${RESET}                 ║"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${YELLOW}# CLI — Escaneo pasivo${RESET}                                   ║"
-echo -e "  ║  ${BOLD}sudo env/bin/python main.py --timeout 60${RESET}                  ║"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${YELLOW}# CLI — Escaneo activo${RESET}                                   ║"
-echo -e "  ║  ${BOLD}sudo env/bin/python main.py --active -t 30${RESET}                ║"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${YELLOW}# CLI — Stress Test${RESET}                                      ║"
-echo -e "  ║  ${BOLD}sudo env/bin/python main.py --stress-test 192.168.1.1${RESET}     ║"
-echo -e "  ║                                                            ║"
-echo -e "  ║  ${YELLOW}# Web Dashboard${RESET}                                          ║"
-echo -e "  ║  ${BOLD}sudo env/bin/python web_main.py${RESET}                           ║"
-echo -e "  ║  ${DIM}→ Abrir http://localhost:8443${RESET}                            ║"
-echo -e "  ║                                                            ║"
-echo -e "  ╚══════════════════════════════════════════════════════════════╝"
+echo "  ╭──────────────────────────────────────────────────────────────╮"
+bline ""
+bline "✔  NetSleuth v1.0.0 instalado correctamente" "${GREEN}${BOLD}"
+bline ""
+echo "  ├──────────────────────────────────────────────────────────────┤"
+bline ""
+bline "Comandos para ejecutar:" "${CYAN}${BOLD}"
+bline ""
+bline "# Activar entorno virtual" "$YELLOW"
+bline "cd ${REPO_NAME} && source env/bin/activate"
+bline ""
+bline "# CLI — Escaneo pasivo" "$YELLOW"
+bline "sudo env/bin/python main.py --timeout 60"
+bline ""
+bline "# CLI — Escaneo activo" "$YELLOW"
+bline "sudo env/bin/python main.py --active -t 30"
+bline ""
+bline "# CLI — Stress Test" "$YELLOW"
+bline "sudo env/bin/python main.py --stress-test 192.168.1.1"
+bline ""
+bline "# Web Dashboard" "$YELLOW"
+bline "sudo env/bin/python web_main.py"
+bline "-> Abrir http://localhost:8443" "$DIM"
+bline ""
+echo "  ╰──────────────────────────────────────────────────────────────╯"
 echo ""

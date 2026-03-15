@@ -47,6 +47,39 @@ Los escáneres tradiciones (como `arp-scan`) solo detectan dispositivos que resp
 
 ---
 
+## ⚡ Comienzo Rápido
+
+```
+╭──────────────────────────────────────────────────────────────╮
+│                                                              │
+│  ✔  NetSleuth v1.0.0 — Guía Rápida                          │
+│                                                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  # Activar entorno virtual                                   │
+│  cd NetSleuth && source env/bin/activate                     │
+│                                                              │
+│  # CLI — Escaneo pasivo                                      │
+│  sudo env/bin/python main.py --timeout 60                    │
+│                                                              │
+│  # CLI — Escaneo activo                                      │
+│  sudo env/bin/python main.py --active -t 30                  │
+│                                                              │
+│  # CLI — Stress Test                                         │
+│  sudo env/bin/python main.py --stress-test 192.168.1.1       │
+│                                                              │
+│  # Web Dashboard                                             │
+│  sudo env/bin/python web_main.py                             │
+│  → Abrir http://localhost:8443                               │
+│                                                              │
+│  # Actualizar a la última versión (si instalaste global)     │
+│  netsleuth update                                            │
+│                                                              │
+╰──────────────────────────────────────────────────────────────╯
+```
+
+---
+
 ## 📂 Estructura del Proyecto
 
 ```
