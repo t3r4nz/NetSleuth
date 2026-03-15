@@ -149,15 +149,17 @@
                         <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800/50">
                             <th class="px-5 py-3">MAC</th>
                             <th class="px-5 py-3">IP</th>
+                            <th class="px-5 py-3">Hostname</th>
                             <th class="px-5 py-3">Vendor</th>
                             <th class="px-5 py-3">OS</th>
                             <th class="px-5 py-3">Type</th>
+                            <th class="px-5 py-3">Services</th>
                             <th class="px-5 py-3">Conf.</th>
                             <th class="px-5 py-3">Last Seen</th>
                         </tr>
                     </thead>
                     <tbody id="device-table-body">
-                        <tr><td colspan="7" class="px-5 py-10 text-center text-gray-600 text-sm">No devices discovered yet. Start a scan…</td></tr>
+                        <tr><td colspan="9" class="px-5 py-10 text-center text-gray-600 text-sm">No devices discovered yet. Start a scan…</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -320,7 +322,7 @@
         badge.textContent = devices.length;
 
         if (devices.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="7" class="px-5 py-10 text-center text-gray-600 text-sm">No devices discovered yet. Start a scan…</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="9" class="px-5 py-10 text-center text-gray-600 text-sm">No devices discovered yet. Start a scan…</td></tr>';
             deviceRows.clear();
             return;
         }
@@ -335,7 +337,28 @@
             'Unknown': 'text-gray-500',
         };
 
-        // Track which MACs are in the current payload
+        const svcColors = [
+            'bg-cyan-900/40 text-cyan-300',
+            'bg-purple-900/40 text-purple-300',
+            'bg-green-900/40 text-green-300',
+            'bg-yellow-900/40 text-yellow-300',
+            'bg-pink-900/40 text-pink-300',
+            'bg-blue-900/40 text-blue-300',
+        ];
+
+        function renderHostname(h) {
+            if (h) return `<span class="text-white font-medium">${esc(h)}</span>`;
+            return '<span class="text-gray-600 italic text-xs">Desconocido</span>';
+        }
+
+        function renderServices(arr) {
+            if (!arr || arr.length === 0) return '<span class="text-gray-700 text-xs">—</span>';
+            return arr.map((s, i) => {
+                const c = svcColors[i % svcColors.length];
+                return `<span class="inline-block ${c} px-1.5 py-0.5 rounded text-[10px] font-semibold mr-1 mb-0.5 whitespace-nowrap">${esc(s)}</span>`;
+            }).join('');
+        }
+
         const activeMacs = new Set();
 
         for (const d of devices) {
@@ -343,38 +366,42 @@
             activeMacs.add(mac);
             const tc = typeColors[d.type] || 'text-gray-400';
 
-            const cellData = [
-                { class: 'px-5 py-3 font-mono text-xs text-gray-400', text: d.mac },
-                { class: 'px-5 py-3 font-mono text-neon-cyan', text: d.ip },
-                { class: 'px-5 py-3 text-gray-300', text: d.vendor },
-                { class: 'px-5 py-3 text-white font-medium', text: d.os },
-                { class: `px-5 py-3 ${tc} font-semibold text-xs`, text: d.type },
-                { class: 'px-5 py-3 font-mono text-xs', text: d.confidence },
-                { class: 'px-5 py-3 text-gray-500 font-mono text-xs', text: d.last_seen },
+            // Cells: some use text only, some use innerHTML
+            const cells = [
+                { cls: 'px-5 py-3 font-mono text-xs text-gray-400', text: d.mac },
+                { cls: 'px-5 py-3 font-mono text-neon-cyan', text: d.ip },
+                { cls: 'px-5 py-3', html: renderHostname(d.hostname) },
+                { cls: 'px-5 py-3 text-gray-300', text: d.vendor },
+                { cls: 'px-5 py-3 text-white font-medium', text: d.os },
+                { cls: `px-5 py-3 ${tc} font-semibold text-xs`, text: d.type },
+                { cls: 'px-5 py-3 max-w-[180px]', html: renderServices(d.services) },
+                { cls: 'px-5 py-3 font-mono text-xs', text: d.confidence },
+                { cls: 'px-5 py-3 text-gray-500 font-mono text-xs', text: d.last_seen },
             ];
 
             if (deviceRows.has(mac)) {
-                // Update existing row in-place (no flicker)
                 const row = deviceRows.get(mac);
-                const cells = row.children;
-                for (let i = 0; i < cellData.length; i++) {
-                    const cell = cells[i];
-                    if (cell.textContent !== (cellData[i].text || '')) {
-                        cell.textContent = cellData[i].text || '';
-                    }
-                    if (cell.className !== cellData[i].class) {
-                        cell.className = cellData[i].class;
+                const tds = row.children;
+                for (let i = 0; i < cells.length; i++) {
+                    const td = tds[i];
+                    if (td.className !== cells[i].cls) td.className = cells[i].cls;
+                    if (cells[i].html !== undefined) {
+                        const newHtml = cells[i].html;
+                        if (td.innerHTML !== newHtml) td.innerHTML = newHtml;
+                    } else {
+                        const newText = cells[i].text || '';
+                        if (td.textContent !== newText) td.textContent = newText;
                     }
                 }
             } else {
-                // Create new row
                 const row = document.createElement('tr');
                 row.className = 'table-row border-b border-gray-800/30';
                 row.dataset.mac = mac;
-                for (const cd of cellData) {
+                for (const c of cells) {
                     const td = document.createElement('td');
-                    td.className = cd.class;
-                    td.textContent = cd.text || '';
+                    td.className = c.cls;
+                    if (c.html !== undefined) { td.innerHTML = c.html; }
+                    else { td.textContent = c.text || ''; }
                     row.appendChild(td);
                 }
                 tbody.appendChild(row);
@@ -382,7 +409,6 @@
             }
         }
 
-        // Remove rows for devices no longer in the payload
         for (const [mac, row] of deviceRows) {
             if (!activeMacs.has(mac)) {
                 row.remove();
@@ -390,8 +416,7 @@
             }
         }
 
-        // Remove the "no devices" placeholder if still present
-        const placeholder = tbody.querySelector('td[colspan="7"]');
+        const placeholder = tbody.querySelector('td[colspan="9"]');
         if (placeholder) placeholder.closest('tr').remove();
     }
 

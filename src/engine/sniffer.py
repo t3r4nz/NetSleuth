@@ -174,8 +174,8 @@ class PacketCapture(PacketSubject, IPacketSource):
     def _convert_packet(scapy_packet: object) -> Optional[RawPacket]:
         """Convert a scapy packet into a domain-level ``RawPacket``.
 
-        Only packets containing ARP, DHCP (BOOTP), or TCP layers are
-        converted; everything else is silently dropped.
+        Handles ARP, DHCP (BOOTP), TCP SYN, mDNS (UDP 5353),
+        SSDP (UDP 1900), and port-heuristic UDP/TCP packets.
 
         Args:
             scapy_packet: A scapy packet object.
@@ -185,7 +185,7 @@ class PacketCapture(PacketSubject, IPacketSource):
         """
         # Late imports to keep scapy out of the module-level namespace.
         from scapy.layers.l2 import ARP, Ether  # type: ignore[import-untyped]
-        from scapy.layers.inet import IP, TCP  # type: ignore[import-untyped]
+        from scapy.layers.inet import IP, TCP, UDP  # type: ignore[import-untyped]
         from scapy.layers.dhcp import BOOTP, DHCP  # type: ignore[import-untyped]
 
         pkt = scapy_packet  # type alias for readability
@@ -231,9 +231,12 @@ class PacketCapture(PacketSubject, IPacketSource):
         # ── TCP SYN ──────────────────────────────────────────────────── #
         if pkt.haslayer(TCP):
             tcp_layer = pkt.getlayer(TCP)
-            # Only SYN packets (flags == 0x02) are useful for OS fingerprinting.
+            ip_layer = pkt.getlayer(IP)
+            src_port = tcp_layer.sport
+            dst_port = tcp_layer.dport
+
+            # SYN-only packets → TCP fingerprinting
             if tcp_layer.flags == 0x02:
-                ip_layer = pkt.getlayer(IP)
                 return RawPacket(
                     timestamp=now,
                     protocol=ProtocolType.TCP,
@@ -247,6 +250,67 @@ class PacketCapture(PacketSubject, IPacketSource):
                         "flags": str(tcp_layer.flags),
                         "options": tcp_layer.options,
                     },
+                )
+
+            # Port heuristic for well-known TCP ports (62078, 548, 9100…)
+            _HEURISTIC_TCP = {62078, 548, 9100, 3689, 7000, 7100, 8008, 8009}
+            if src_port in _HEURISTIC_TCP or dst_port in _HEURISTIC_TCP:
+                return RawPacket(
+                    timestamp=now,
+                    protocol=ProtocolType.MDNS_SSDP,
+                    src_mac=src_mac,
+                    dst_mac=dst_mac,
+                    src_ip=ip_layer.src if ip_layer else None,
+                    dst_ip=ip_layer.dst if ip_layer else None,
+                    metadata={
+                        "src_port": src_port,
+                        "dst_port": dst_port,
+                    },
+                )
+
+        # ── UDP: mDNS (5353), SSDP (1900), port heuristics ──────────── #
+        if pkt.haslayer(UDP):
+            udp_layer = pkt.getlayer(UDP)
+            ip_layer = pkt.getlayer(IP)
+            src_port = udp_layer.sport
+            dst_port = udp_layer.dport
+            metadata: dict[str, object] = {
+                "src_port": src_port,
+                "dst_port": dst_port,
+            }
+
+            try:
+                # mDNS (port 5353)
+                if src_port == 5353 or dst_port == 5353:
+                    from src.analyzers.mdns_ssdp_analyzer import extract_mdns_hostname
+                    hostname = extract_mdns_hostname(pkt)
+                    if hostname:
+                        metadata["mdns_hostname"] = hostname
+
+                # SSDP (port 1900)
+                if src_port == 1900 or dst_port == 1900:
+                    from src.analyzers.mdns_ssdp_analyzer import extract_ssdp_info
+                    raw_bytes = bytes(udp_layer.payload) if udp_layer.payload else b""
+                    ssdp_info = extract_ssdp_info(raw_bytes)
+                    if ssdp_info.get("server"):
+                        metadata["ssdp_server"] = ssdp_info["server"]
+                    if ssdp_info.get("location"):
+                        metadata["ssdp_location"] = ssdp_info["location"]
+            except Exception:
+                pass  # Malformed packets — don't crash sniffer
+
+            # Only emit if it's a discovery-related port
+            _DISCOVERY_PORTS = {5353, 1900, 19132, 5228}
+            if (src_port in _DISCOVERY_PORTS or dst_port in _DISCOVERY_PORTS
+                    or metadata.get("mdns_hostname") or metadata.get("ssdp_server")):
+                return RawPacket(
+                    timestamp=now,
+                    protocol=ProtocolType.MDNS_SSDP,
+                    src_mac=src_mac,
+                    dst_mac=dst_mac,
+                    src_ip=ip_layer.src if ip_layer else None,
+                    dst_ip=ip_layer.dst if ip_layer else None,
+                    metadata=metadata,
                 )
 
         return None

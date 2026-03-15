@@ -115,9 +115,8 @@ class AnalysisEngine(IPacketListener):
     ) -> None:
         """Create or update a ``NetworkDevice`` with a new fingerprint.
 
-        If a device with the same MAC already exists in the store, the
-        fingerprint is appended and timestamps are refreshed.  Otherwise
-        a new device is created.
+        For mDNS/SSDP packets, also propagates hostname and services
+        extracted by the analyzer.
 
         Args:
             packet: Source packet (provides MAC/IP).
@@ -130,6 +129,16 @@ class AnalysisEngine(IPacketListener):
             existing.add_fingerprint(fingerprint)
             if packet.src_ip:
                 existing.ip_address = packet.src_ip
+
+            # Propagate mDNS/SSDP hostname
+            mdns_hostname = packet.metadata.get("mdns_hostname")
+            if mdns_hostname and isinstance(mdns_hostname, str):
+                existing.hostname = mdns_hostname
+
+            # Propagate services from the fingerprint method
+            if fingerprint.method.startswith("mDNS/SSDP"):
+                self._extract_services(existing, packet, fingerprint)
+
             self._device_store.upsert(existing)
             logger.info(
                 "Updated device %s (%s) — %s confidence=%.2f",
@@ -146,6 +155,16 @@ class AnalysisEngine(IPacketListener):
                 vendor=vendor,
                 fingerprints=[fingerprint],
             )
+
+            # Propagate mDNS/SSDP hostname
+            mdns_hostname = packet.metadata.get("mdns_hostname")
+            if mdns_hostname and isinstance(mdns_hostname, str):
+                device.hostname = mdns_hostname
+
+            # Propagate services
+            if fingerprint.method.startswith("mDNS/SSDP"):
+                self._extract_services(device, packet, fingerprint)
+
             self._device_store.upsert(device)
             logger.info(
                 "New device discovered: %s (%s) — %s confidence=%.2f",
@@ -154,6 +173,26 @@ class AnalysisEngine(IPacketListener):
                 fingerprint.os_guess,
                 fingerprint.confidence,
             )
+
+    @staticmethod
+    def _extract_services(
+        device: NetworkDevice,
+        packet: RawPacket,
+        fingerprint: DeviceFingerprint,
+    ) -> None:
+        """Extract service labels from the fingerprint details and
+        packet metadata, adding them to the device's services set."""
+        detail = fingerprint.details or ""
+        for part in detail.split(" | "):
+            part = part.strip()
+            if part.startswith("Port ") and "→" in part:
+                svc = part.split("→", 1)[1].strip()
+                if svc:
+                    device.services.add(svc)
+            elif part.startswith("mDNS"):
+                device.services.add("mDNS")
+            elif part.startswith("SSDP"):
+                device.services.add("SSDP/UPnP")
 
     def _resolve_vendor(self, mac: str) -> Optional[str]:
         """Resolve the vendor for a MAC address, swallowing errors.

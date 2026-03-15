@@ -39,6 +39,7 @@ from pydantic import BaseModel
 from src.analyzers.arp_analyzer import ARPAnalyzer
 from src.analyzers.dhcp_analyzer import DHCPAnalyzer
 from src.analyzers.tcp_analyzer import TCPAnalyzer
+from src.analyzers.mdns_ssdp_analyzer import MdnsSsdpAnalyzer
 from src.core.analyzer_factory import AnalyzerFactory
 from src.core.models import ProtocolType
 from src.engine.analysis_engine import AnalysisEngine
@@ -259,6 +260,7 @@ class _AppState:
         factory.register(ProtocolType.ARP, ARPAnalyzer)
         factory.register(ProtocolType.DHCP, DHCPAnalyzer)
         factory.register(ProtocolType.TCP, TCPAnalyzer)
+        factory.register(ProtocolType.MDNS_SSDP, MdnsSsdpAnalyzer)
 
         # Analysis engine
         self._engine = AnalysisEngine(
@@ -270,7 +272,9 @@ class _AppState:
         # BPF filter
         bpf = (
             "arp or port 67 or port 68 "
-            "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0)"
+            "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0) "
+            "or udp port 5353 or udp port 1900 "
+            "or udp port 19132 or tcp port 62078"
         )
 
         # Sniffer
@@ -327,6 +331,7 @@ class _AppState:
             factory.register(ProtocolType.ARP, ARPAnalyzer)
             factory.register(ProtocolType.DHCP, DHCPAnalyzer)
             factory.register(ProtocolType.TCP, TCPAnalyzer)
+            factory.register(ProtocolType.MDNS_SSDP, MdnsSsdpAnalyzer)
             self._engine = AnalysisEngine(
                 factory=factory,
                 device_store=self._device_store,
@@ -334,7 +339,9 @@ class _AppState:
             )
             bpf = (
                 "arp or port 67 or port 68 "
-                "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0)"
+                "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0) "
+                "or udp port 5353 or udp port 1900 "
+                "or udp port 19132 or tcp port 62078"
             )
             self._sniffer = PacketCapture(
                 interface=self._interface,
@@ -386,9 +393,11 @@ class _AppState:
                 "mac": d.mac_address,
                 "ip": d.ip_address or "—",
                 "vendor": d.vendor or "Unknown",
+                "hostname": d.hostname or "",
                 "os": d.best_os_guess,
                 "type": d.best_device_type.value,
                 "confidence": f"{best_conf * 100:.0f}%",
+                "services": d.services_list,
                 "first_seen": d.first_seen.strftime("%H:%M:%S"),
                 "last_seen": d.last_seen.strftime("%H:%M:%S"),
             })

@@ -4,15 +4,19 @@ NetSleuth — In-Memory Device Store.
 Thread-safe device registry that stores discovered ``NetworkDevice``
 objects keyed by their MAC address.
 
-This implementation is suitable for a single-session CLI tool.  For
-persistence across runs, swap this adapter for a SQLite-backed or
-JSON-file-backed implementation of ``IDeviceStore``.
+Smart merge rules on ``upsert()``:
+- Never overwrite a valid IP with a null/invalid one.
+- Preserve the hostname that was set first (unless a new one arrives).
+- Union (merge) services sets.
+- Keep all fingerprints accumulated over time.
+- Preserve earliest ``first_seen``, always update ``last_seen``.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+from datetime import datetime
 from typing import Optional, Sequence
 
 from src.core.interfaces import IDeviceStore
@@ -22,12 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class InMemoryDeviceStore(IDeviceStore):
-    """Thread-safe, in-memory implementation of ``IDeviceStore``.
-
-    All public methods acquire ``_lock`` before accessing the internal
-    dictionary, making it safe to call from both the sniffer thread
-    and the main thread simultaneously.
-    """
+    """Thread-safe, in-memory implementation of ``IDeviceStore``."""
 
     def __init__(self) -> None:
         self._devices: dict[str, NetworkDevice] = {}
@@ -47,9 +46,10 @@ class InMemoryDeviceStore(IDeviceStore):
 
         Merge rules:
         - Never overwrite a valid IP with a null/invalid IP.
-        - Keep the higher-confidence fingerprint.
-        - Preserve the earliest ``first_seen`` timestamp.
-        - Always update ``last_seen`` to the latest value.
+        - Keep existing hostname unless a non-None hostname arrives.
+        - Union services sets.
+        - Accumulate all fingerprints.
+        - Preserve ``first_seen``, always update ``last_seen``.
 
         Args:
             device: The device to upsert.
@@ -59,46 +59,42 @@ class InMemoryDeviceStore(IDeviceStore):
             existing = self._devices.get(mac_key)
 
             if existing is None:
-                # Brand new device — insert directly.
                 self._devices[mac_key] = device
                 logger.debug("New device %s (%s).", mac_key, device.ip_address)
                 return
 
             # ── Smart merge ──────────────────────────────────── #
-            merged = device
 
-            # Preserve valid IP if incoming one is bad.
-            if self._is_valid_ip(existing.ip_address) and not self._is_valid_ip(device.ip_address):
-                merged = NetworkDevice(
-                    mac_address=device.mac_address,
-                    ip_address=existing.ip_address,
-                    vendor=device.vendor or existing.vendor,
-                    fingerprint=device.fingerprint if (device.fingerprint and device.fingerprint.confidence >= (existing.fingerprint.confidence if existing.fingerprint else 0)) else existing.fingerprint,
-                    first_seen=min(existing.first_seen, device.first_seen),
-                    last_seen=max(existing.last_seen, device.last_seen),
-                )
-            else:
-                merged = NetworkDevice(
-                    mac_address=device.mac_address,
-                    ip_address=device.ip_address if self._is_valid_ip(device.ip_address) else existing.ip_address,
-                    vendor=device.vendor or existing.vendor,
-                    fingerprint=device.fingerprint if (device.fingerprint and device.fingerprint.confidence >= (existing.fingerprint.confidence if existing.fingerprint else 0)) else existing.fingerprint,
-                    first_seen=min(existing.first_seen, device.first_seen),
-                    last_seen=max(existing.last_seen, device.last_seen),
-                )
+            # IP: never overwrite valid with invalid
+            if self._is_valid_ip(device.ip_address):
+                existing.ip_address = device.ip_address
+            # else: keep existing IP
 
-            self._devices[mac_key] = merged
-            logger.debug("Merged device %s (%s).", mac_key, merged.ip_address)
+            # Vendor: prefer non-None
+            if device.vendor:
+                existing.vendor = device.vendor
+
+            # Hostname: overwrite None with real value; overwrite old with new
+            if device.hostname:
+                existing.hostname = device.hostname
+
+            # Services: union
+            if device.services:
+                existing.services |= device.services
+
+            # Fingerprints: append new ones
+            for fp in device.fingerprints:
+                existing.fingerprints.append(fp)
+
+            # Timestamps
+            existing.first_seen = min(existing.first_seen, device.first_seen)
+            existing.last_seen = max(existing.last_seen, device.last_seen, datetime.utcnow())
+
+            self._devices[mac_key] = existing
+            logger.debug("Merged device %s (%s).", mac_key, existing.ip_address)
 
     def get_all(self) -> Sequence[NetworkDevice]:
-        """Return a snapshot of all discovered devices.
-
-        The returned list is a *copy*, so callers can iterate safely
-        without holding the lock.
-
-        Returns:
-            List of ``NetworkDevice`` objects, sorted by ``first_seen``.
-        """
+        """Return a snapshot of all discovered devices sorted by first_seen."""
         with self._lock:
             return sorted(
                 self._devices.values(),
@@ -106,14 +102,7 @@ class InMemoryDeviceStore(IDeviceStore):
             )
 
     def find_by_mac(self, mac_address: str) -> Optional[NetworkDevice]:
-        """Find a device by its MAC address.
-
-        Args:
-            mac_address: Colon-separated MAC (case-insensitive).
-
-        Returns:
-            The ``NetworkDevice`` if found, otherwise ``None``.
-        """
+        """Find a device by its MAC address."""
         mac_key = mac_address.upper()
         with self._lock:
             return self._devices.get(mac_key)

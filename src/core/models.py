@@ -19,6 +19,7 @@ class ProtocolType(Enum):
     ARP = auto()
     DHCP = auto()
     TCP = auto()
+    MDNS_SSDP = auto()
     UNKNOWN = auto()
 
 
@@ -97,7 +98,8 @@ class NetworkDevice:
         mac_address: Device's MAC address (canonical form, uppercase, colon-separated).
         ip_address: Most recently observed IP address.
         vendor: Vendor/manufacturer string resolved from the MAC OUI.
-        hostname: DHCP-reported hostname, if available.
+        hostname: Device hostname discovered via DHCP, mDNS, or SSDP.
+        services: Set of discovered service/protocol labels (e.g., "AirPlay", "SSDP").
         fingerprints: Accumulated fingerprint results from different analyzers.
         first_seen: Timestamp when this device was first observed.
         last_seen: Timestamp of the most recent observation.
@@ -107,6 +109,7 @@ class NetworkDevice:
     ip_address: Optional[str] = None
     vendor: Optional[str] = None
     hostname: Optional[str] = None
+    services: set[str] = field(default_factory=set)
     fingerprints: list[DeviceFingerprint] = field(default_factory=list)
     first_seen: datetime = field(default_factory=datetime.utcnow)
     last_seen: datetime = field(default_factory=datetime.utcnow)
@@ -128,6 +131,11 @@ class NetworkDevice:
             return DeviceType.UNKNOWN
         best = max(self.fingerprints, key=lambda fp: fp.confidence)
         return best.device_type
+
+    @property
+    def services_list(self) -> list[str]:
+        """Sorted list of services for JSON serialization."""
+        return sorted(self.services)
 
     def add_fingerprint(self, fingerprint: DeviceFingerprint) -> None:
         """Append a new fingerprint and refresh *last_seen*.
