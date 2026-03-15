@@ -169,9 +169,12 @@ class ActiveScanner(IActiveScanner):
                 self._packets_sent += 1
                 count += 1
 
-                # Breathe between batches
+                # Breathe between batches to prevent CPU spike (SIGKILL)
                 if count % _BATCH_SIZE == 0:
                     time.sleep(self._inter_packet_delay * _BATCH_SIZE)
+                else:
+                    # Mandatory safety sleep to yield thread and prevent 100% CPU lock
+                    time.sleep(0.001)
 
             logger.info("ARP sweep sent %d packets.", count)
 
@@ -219,9 +222,12 @@ class ActiveScanner(IActiveScanner):
                     self._packets_sent += 1
                     count += 1
 
-                    # Breathe between batches
+                    # Breathe between batches to prevent CPU spike (SIGKILL)
                     if count % _BATCH_SIZE == 0:
                         time.sleep(self._inter_packet_delay * _BATCH_SIZE)
+                    else:
+                        # Mandatory safety sleep to yield thread and prevent 100% CPU lock
+                        time.sleep(0.001)
 
             logger.info("TCP SYN probe sent %d packets.", count)
 
