@@ -295,10 +295,12 @@ class StressTester(IStressTester):
 
                     # Check stop event periodically (not every packet — too slow)
                     if count % _STOP_CHECK_INTERVAL == 0:
+                        time.sleep(0.01)  # Ceder el control al OS obligatoriamente
                         if self._stop_event.is_set():
                             break
                 except OSError:
                     # Send buffer full or transient error — skip and continue
+                    time.sleep(0.01)  # Ceder el control y evitar 100% de CPU en ráfagas fallidas
                     pass
         finally:
             sock.close()
