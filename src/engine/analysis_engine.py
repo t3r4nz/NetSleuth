@@ -28,9 +28,9 @@ from src.core.models import (
 logger = logging.getLogger(__name__)
 
 # Dedicated thread pool for blocking vendor-lookup HTTP calls.
-# Max 2 workers: lookups are rate-limited to 1 req/s anyway, so more
-# threads would just pile up waiting on the rate-limit sleep.
-_VENDOR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vendor-lookup")
+# Only 1 worker: the vendor API enforces ~1 req/s and the rate-limiter in
+# vendor_lookup.py is not thread-safe for concurrent workers.
+_VENDOR_EXECUTOR = ThreadPoolExecutor(max_workers=1, thread_name_prefix="vendor-lookup")
 
 
 class AnalysisEngine(IPacketListener):

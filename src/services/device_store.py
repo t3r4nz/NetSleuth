@@ -63,7 +63,18 @@ class InMemoryDeviceStore(IDeviceStore):
                 logger.debug("New device %s (%s).", mac_key, device.ip_address)
                 return
 
-            # ── Smart merge ──────────────────────────────────── #
+            # ── Same-object fast path ────────────────────────── #
+            # The analysis engine calls find_by_mac(), mutates the
+            # returned object in-place, then calls upsert() with
+            # that same reference.  In that case device IS existing
+            # (same Python id), so there is nothing to merge — the
+            # mutations are already visible in the store.  We only
+            # need to refresh last_seen.
+            if device is existing:
+                existing.last_seen = max(existing.last_seen, datetime.utcnow())
+                return
+
+            # ── Smart merge (different objects) ──────────────── #
 
             # IP: never overwrite valid with invalid
             if self._is_valid_ip(device.ip_address):
@@ -82,9 +93,11 @@ class InMemoryDeviceStore(IDeviceStore):
             if device.services:
                 existing.services |= device.services
 
-            # Fingerprints: append new ones
-            for fp in device.fingerprints:
-                existing.fingerprints.append(fp)
+            # Fingerprints: merge from a snapshot to avoid mutating
+            # the list while iterating (safe even if objects are
+            # accidentally aliased).
+            for fp in list(device.fingerprints):
+                existing.add_fingerprint(fp)
 
             # Timestamps
             existing.first_seen = min(existing.first_seen, device.first_seen)

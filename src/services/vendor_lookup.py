@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_API_URL = "https://api.macvendors.com/{mac}"
 
 # Minimum delay between consecutive API calls (seconds).
-_MIN_REQUEST_INTERVAL: float = 1.0
+_MIN_REQUEST_INTERVAL: float = 1.5
 
 
 class MacVendorLookup(IVendorLookup):
