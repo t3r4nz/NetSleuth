@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import queue
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -68,6 +69,8 @@ class PacketCapture(PacketSubject, IPacketSource):
         self._bpf_filter = bpf_filter
         self._timeout = timeout
         self._stop_event = threading.Event()
+        self._queue: queue.Queue = queue.Queue(maxsize=2000)
+        self._worker_thread: Optional[threading.Thread] = None
         self._thread: Optional[threading.Thread] = None
 
     # ── IPacketSource implementation ──────────────────────────────────── #
@@ -85,6 +88,14 @@ class PacketCapture(PacketSubject, IPacketSource):
             return
 
         self._stop_event.clear()
+
+        self._worker_thread = threading.Thread(
+            target=self._worker_loop,
+            name="netsleuth-worker",
+            daemon=True,
+        )
+        self._worker_thread.start()
+
         self._thread = threading.Thread(
             target=self._sniff_loop,
             name="netsleuth-sniffer",
@@ -103,8 +114,11 @@ class PacketCapture(PacketSubject, IPacketSource):
         self._stop_event.set()
         if self._thread is not None:
             self._thread.join(timeout=5)
-            logger.info("Sniffer stopped.")
             self._thread = None
+        if self._worker_thread is not None:
+            self._worker_thread.join(timeout=5)
+            self._worker_thread = None
+        logger.info("Sniffer stopped.")
 
     def subscribe(self, listener: IPacketListener) -> None:
         """Register a packet listener (delegates to ``PacketSubject``)."""
@@ -154,21 +168,33 @@ class PacketCapture(PacketSubject, IPacketSource):
         except Exception as exc:
             raise SniffingError(str(exc)) from exc
 
+    def _worker_loop(self) -> None:
+        """Worker thread that processes packets from the queue."""
+        while not self._stop_event.is_set():
+            try:
+                scapy_packet = self._queue.get(timeout=0.5)
+                raw_packet = self._convert_packet(scapy_packet)
+                if raw_packet is not None:
+                    self.notify(raw_packet)
+                self._queue.task_done()
+            except queue.Empty:
+                continue
+            except Exception:
+                logger.exception("Error processing packet in worker thread.")
+
     def _handle_packet(self, scapy_packet: object) -> None:
         """Callback invoked by scapy for each captured packet.
-
-        Converts the scapy packet into a domain ``RawPacket`` and
-        notifies all listeners.
 
         Args:
             scapy_packet: The raw scapy packet object.
         """
         try:
-            raw_packet = self._convert_packet(scapy_packet)
-            if raw_packet is not None:
-                self.notify(raw_packet)
+            self._queue.put(scapy_packet, block=False)
+        except queue.Full:
+            # Backpressure: Drop the packet silently to prevent OOM
+            pass
         except Exception:
-            logger.exception("Error converting/dispatching packet.")
+            logger.exception("Error enqueuing packet.")
 
     # ── Packet conversion ─────────────────────────────────────────────── #
 

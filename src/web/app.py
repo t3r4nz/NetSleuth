@@ -272,12 +272,11 @@ class _AppState:
             vendor_lookup=self._vendor_lookup,
         )
 
-        # BPF filter
+        # BPF filter estricto (no payload pesado)
         bpf = (
-            "arp or port 67 or port 68 "
-            "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0) "
+            "arp or udp port 67 or udp port 68 "
             "or udp port 5353 or udp port 1900 "
-            "or udp port 19132 or tcp port 62078"
+            "or tcp[tcpflags] & (tcp-syn|tcp-ack) != 0"
         )
 
         # Sniffer
@@ -340,11 +339,11 @@ class _AppState:
                 device_store=self._device_store,
                 vendor_lookup=self._vendor_lookup,
             )
+            # BPF filter estricto (no payload pesado)
             bpf = (
-                "arp or port 67 or port 68 "
-                "or (tcp[tcpflags] & (tcp-syn|tcp-rst) != 0) "
+                "arp or udp port 67 or udp port 68 "
                 "or udp port 5353 or udp port 1900 "
-                "or udp port 19132 or tcp port 62078"
+                "or tcp[tcpflags] & (tcp-syn|tcp-ack) != 0"
             )
             self._sniffer = PacketCapture(
                 interface=self._interface,
