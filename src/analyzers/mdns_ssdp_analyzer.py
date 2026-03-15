@@ -94,14 +94,14 @@ class MdnsSsdpAnalyzer(IPacketAnalyzer):
                 hostname = mdns_name
                 services.add("mDNS")
                 details_parts.append(f"mDNS hostname: {hostname}")
-                logger.info("mDNS hostname for %s: %s", packet.src_mac, hostname)
+                logger.debug("mDNS hostname for %s: %s", packet.src_mac, hostname)
 
             # ── SSDP extraction ───────────────────────────────── #
             ssdp_server = packet.metadata.get("ssdp_server")
             if ssdp_server and isinstance(ssdp_server, str):
                 services.add("SSDP/UPnP")
                 details_parts.append(f"SSDP Server: {ssdp_server}")
-                logger.info("SSDP server for %s: %s", packet.src_mac, ssdp_server)
+                logger.debug("SSDP server for %s: %s", packet.src_mac, ssdp_server)
 
             ssdp_location = packet.metadata.get("ssdp_location")
             if ssdp_location and isinstance(ssdp_location, str):

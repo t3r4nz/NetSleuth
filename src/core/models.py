@@ -137,11 +137,28 @@ class NetworkDevice:
         """Sorted list of services for JSON serialization."""
         return sorted(self.services)
 
+    # Maximum number of fingerprints kept per device to bound memory and
+    # CPU usage of best_os_guess / best_device_type on every WS tick.
+    _MAX_FINGERPRINTS: int = 50
+
     def add_fingerprint(self, fingerprint: DeviceFingerprint) -> None:
         """Append a new fingerprint and refresh *last_seen*.
+
+        When the cap is reached the existing fingerprint with the **lowest
+        confidence** is evicted to make room, so the accumulated pool always
+        represents the most informative observations.
 
         Args:
             fingerprint: The fingerprint to add.
         """
-        self.fingerprints.append(fingerprint)
+        if len(self.fingerprints) >= self._MAX_FINGERPRINTS:
+            # Evict lowest-confidence entry rather than growing unboundedly.
+            min_idx = min(
+                range(len(self.fingerprints)),
+                key=lambda i: self.fingerprints[i].confidence,
+            )
+            if self.fingerprints[min_idx].confidence < fingerprint.confidence:
+                self.fingerprints[min_idx] = fingerprint
+        else:
+            self.fingerprints.append(fingerprint)
         self.last_seen = datetime.utcnow()

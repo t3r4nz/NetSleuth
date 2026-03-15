@@ -188,8 +188,7 @@ def create_app(
             while True:
                 payload = state.build_ws_payload()
                 await ws.send_text(json.dumps(payload))
-                print("DEBUG: WebSocket enviando datos...")
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
         except asyncio.CancelledError:
             logger.info("WebSocket task cancelled cleanly (Client disconnected).")
         except WebSocketDisconnect:

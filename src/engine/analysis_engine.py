@@ -13,6 +13,7 @@ directly to the ``PacketCapture`` subject.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from src.core.analyzer_factory import AnalyzerFactory
@@ -25,6 +26,11 @@ from src.core.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Dedicated thread pool for blocking vendor-lookup HTTP calls.
+# Max 2 workers: lookups are rate-limited to 1 req/s anyway, so more
+# threads would just pile up waiting on the rate-limit sleep.
+_VENDOR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vendor-lookup")
 
 
 class AnalysisEngine(IPacketListener):
@@ -140,7 +146,7 @@ class AnalysisEngine(IPacketListener):
                 self._extract_services(existing, packet, fingerprint)
 
             self._device_store.upsert(existing)
-            logger.info(
+            logger.debug(
                 "Updated device %s (%s) — %s confidence=%.2f",
                 mac,
                 existing.vendor or "Unknown vendor",
@@ -148,11 +154,12 @@ class AnalysisEngine(IPacketListener):
                 fingerprint.confidence,
             )
         else:
-            vendor = self._resolve_vendor(mac)
+            # Upsert immediately with vendor=None so the device appears in
+            # the UI right away, then resolve the vendor asynchronously.
             device = NetworkDevice(
                 mac_address=mac,
                 ip_address=packet.src_ip,
-                vendor=vendor,
+                vendor=None,
                 fingerprints=[fingerprint],
             )
 
@@ -167,12 +174,16 @@ class AnalysisEngine(IPacketListener):
 
             self._device_store.upsert(device)
             logger.info(
-                "New device discovered: %s (%s) — %s confidence=%.2f",
+                "New device discovered: %s — %s confidence=%.2f",
                 mac,
-                vendor or "Unknown vendor",
                 fingerprint.os_guess,
                 fingerprint.confidence,
             )
+
+            # Dispatch vendor HTTP lookup to the background executor so it
+            # never blocks the sniffer worker thread.
+            if self._vendor_lookup is not None:
+                _VENDOR_EXECUTOR.submit(self._async_resolve_vendor, mac)
 
     @staticmethod
     def _extract_services(
@@ -210,6 +221,28 @@ class AnalysisEngine(IPacketListener):
         except Exception:
             logger.warning("Vendor lookup failed for %s.", mac)
             return None
+
+    def _async_resolve_vendor(self, mac: str) -> None:
+        """Background callback: resolve vendor then write it back to the store.
+
+        Called from the ``_VENDOR_EXECUTOR`` thread pool, NOT the sniffer
+        worker.  Writes the resolved vendor back to the device via a
+        thread-safe ``InMemoryDeviceStore.upsert()`` call.
+
+        Args:
+            mac: MAC address to look up.
+        """
+        vendor = self._resolve_vendor(mac)
+        if vendor is None:
+            return
+        try:
+            existing = self._device_store.find_by_mac(mac)
+            if existing is not None:
+                existing.vendor = vendor
+                self._device_store.upsert(existing)
+                logger.debug("Vendor resolved for %s: %s", mac, vendor)
+        except Exception:
+            logger.warning("Failed to write vendor back for %s.", mac)
 
     # ── Metrics ───────────────────────────────────────────────────────── #
 

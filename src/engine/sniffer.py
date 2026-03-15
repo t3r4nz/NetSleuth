@@ -35,6 +35,24 @@ from src.core.observer import PacketSubject
 
 logger = logging.getLogger(__name__)
 
+# Scapy layer references — populated once on first PacketCapture.start().
+# Keeping them at module level removes repeated sys.modules lookups that
+# occurred when these imports lived inside _convert_packet() (hot path).
+_ARP = _Ether = _IP = _TCP = _UDP = _BOOTP = _DHCP = None
+
+
+def _ensure_scapy_layers() -> None:
+    """Import scapy layer classes once and cache them at module level."""
+    global _ARP, _Ether, _IP, _TCP, _UDP, _BOOTP, _DHCP
+    if _ARP is not None:
+        return  # Already imported
+    from scapy.layers.l2 import ARP, Ether          # type: ignore[import-untyped]
+    from scapy.layers.inet import IP, TCP, UDP       # type: ignore[import-untyped]
+    from scapy.layers.dhcp import BOOTP, DHCP        # type: ignore[import-untyped]
+    _ARP, _Ether = ARP, Ether
+    _IP, _TCP, _UDP = IP, TCP, UDP
+    _BOOTP, _DHCP = BOOTP, DHCP
+
 
 class PacketCapture(PacketSubject, IPacketSource):
     """Live network packet capture powered by scapy.
@@ -86,6 +104,10 @@ class PacketCapture(PacketSubject, IPacketSource):
         if self._thread is not None and self._thread.is_alive():
             logger.warning("Sniffer is already running.")
             return
+
+        # Eagerly import scapy layers here (once) so _convert_packet()
+        # never triggers a module-cache lookup on the hot packet path.
+        _ensure_scapy_layers()
 
         self._stop_event.clear()
 
@@ -211,10 +233,10 @@ class PacketCapture(PacketSubject, IPacketSource):
         Returns:
             A ``RawPacket`` or ``None`` if the packet is not interesting.
         """
-        # Late imports to keep scapy out of the module-level namespace.
-        from scapy.layers.l2 import ARP, Ether  # type: ignore[import-untyped]
-        from scapy.layers.inet import IP, TCP, UDP  # type: ignore[import-untyped]
-        from scapy.layers.dhcp import BOOTP, DHCP  # type: ignore[import-untyped]
+        # Use module-level cached references (populated once in start()).
+        ARP, Ether = _ARP, _Ether
+        IP, TCP, UDP = _IP, _TCP, _UDP
+        BOOTP, DHCP = _BOOTP, _DHCP
 
         pkt = scapy_packet  # type alias for readability
 
