@@ -99,21 +99,55 @@ NetSleuth/
 
 ### Kali Linux (Recomendado)
 
+#### Opción A: Instalación automática
+
+```bash
+# Descargar y ejecutar el instalador
+git clone https://github.com/t3r4nz/NetSleuth.git
+cd NetSleuth
+chmod +x install.sh && ./install.sh
+```
+
+#### Opción B: Instalación manual
+
 ```bash
 # 1. Clonar el repositorio
-git clone https://github.com/tu-usuario/NetSleuth.git
+git clone https://github.com/t3r4nz/NetSleuth.git
 cd NetSleuth
 
-# 2. Crear entorno virtual
-python3 -m venv venv
-source venv/bin/activate
+# 2. Instalar dependencias del sistema
+sudo apt update && sudo apt install -y python3-pip python3-venv libpcap-dev
 
-# 3. Instalar dependencias
+# 3. Crear entorno virtual e instalar dependencias
+python3 -m venv env
+source env/bin/activate
 pip install -r requirements.txt
 
 # 4. Verificar instalación
-sudo venv/bin/python main.py --help
+sudo env/bin/python main.py --help
 ```
+
+#### Instalar como comando global (opcional)
+
+Permite ejecutar `netsleuth` desde **cualquier directorio** sin activar el venv:
+
+```bash
+# 1. Copiar el proyecto a /opt (ubicación estándar para herramientas)
+sudo cp -r ~/NetSleuth /opt/NetSleuth
+
+# 2. Instalar el wrapper en el PATH global
+sudo cp /opt/NetSleuth/netsleuth.sh /usr/local/bin/netsleuth
+sudo chmod +x /usr/local/bin/netsleuth
+
+# 3. Listo — usar desde cualquier ubicación
+netsleuth --help                              # CLI
+netsleuth --active -t 30                      # Escaneo activo
+netsleuth --stress-test 192.168.1.1 -t 10     # Stress test
+netsleuth web                                 # Web Dashboard
+```
+
+> **Nota:** Si clonaste en otra ruta, edita `INSTALL_DIR` en el wrapper:
+> `sudo nano /usr/local/bin/netsleuth`
 
 ### Ubuntu / Debian
 
@@ -314,5 +348,5 @@ MIT License — consulta el archivo [LICENSE](LICENSE) para más detalles.
 ---
 
 <p align="center">
-  <em>Desarrollado con 🐍 Python y ☕ café por el equipo NetSleuth</em>
+  <em>Desarrollado con 🐍 Python y ☕ café por T3R4Nz </em>
 </p>
